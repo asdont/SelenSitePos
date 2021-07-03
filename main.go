@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	pos, url := getPositions("labrika.ru", "лабрика инструменты для продвижения сайтов", "ru-ru")
+	pos, url := getPositions("site.ru", "keyword", "ru-ru")
 	fmt.Println(pos, url)
 }
 
@@ -130,7 +130,6 @@ func getPositions(domain string, keyword string, country string) (int, string) {
 
 func searchDomain(domain string, elements []selenium.WebElement) (int, string) {
 	// поиск домена в урл-ах элементов
-	// TODO допилить поиск в только определённой порции
 	for position, tags := range elements {
 		url, errGetHref := tags.GetAttribute("href")
 
