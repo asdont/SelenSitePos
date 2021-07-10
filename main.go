@@ -4,13 +4,15 @@ import (
 	"fmt"
 	"github.com/tebeka/selenium"
 	"github.com/tebeka/selenium/chrome"
+	"log"
+	"net/url"
 	"strings"
 	"time"
 )
 
 func main() {
-	pos, url := getPositions("site.ru", "keyword", "ru-ru")
-	fmt.Println(pos, url)
+	pos, urls := getPositions("site.ru", "keyword", "ru-ru")
+	fmt.Println(pos, urls)
 }
 
 func getPositions(domain string, keyword string, country string) (int, string) {
@@ -31,7 +33,7 @@ func getPositions(domain string, keyword string, country string) (int, string) {
 	defer func(service *selenium.Service) {
 		err := service.Stop()
 		if err != nil {
-
+			log.Println(err)
 		}
 	}(service)
 
@@ -43,16 +45,13 @@ func getPositions(domain string, keyword string, country string) (int, string) {
 	chromeCaps := chrome.Capabilities{
 		Path: "",
 		Args: []string{
-			//"--headless",
+			"--headless",
 			"--disable-extensions",
 			"--disable-plugins",
 			"--disable-notifications",
 			"--media-cache-size=1",
 			"--mute-audio",
-			// TODO менять на новых прокси
 			"--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_2) AppleWebKit/604.4.7 (KHTML, like Gecko) Version/11.0.2 Safari/604.4.7",
-			//"--user-agent=Mozilla/5.0 (Windows NT 6.3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.93 Safari/537.36",
-
 		},
 	}
 
@@ -65,12 +64,11 @@ func getPositions(domain string, keyword string, country string) (int, string) {
 
 	defer func(wd selenium.WebDriver) {
 		if err := wd.Quit(); err != nil {
-			fmt.Println(err)
+			log.Println(err)
 		}
 	}(wd)
 
-	time.Sleep(10 * time.Second)
-	errWait := wd.SetImplicitWaitTimeout(3 * time.Second) // максимальное ожидание появления элемента
+	errWait := wd.SetImplicitWaitTimeout(3 * time.Second) // максимальное время ожидания появления элемента
 	if errWait != nil {
 		fmt.Println(errWait)
 	}
@@ -81,9 +79,21 @@ func getPositions(domain string, keyword string, country string) (int, string) {
 	}
 
 	// запрос страницы с требуемым keyword
-	targetKeyword := strings.Join(strings.Split(keyword, " "), "+")
-	targetUrl := fmt.Sprintf("https://duckduckgo.com/?q=%s&kl=%s", targetKeyword, country)
-	errGetUrl := wd.Get(targetUrl)
+	siteURL, err := url.Parse("https://site.com")
+	if err != nil {
+		log.Fatal("parse site url: %v", err)
+	}
+
+	siteURL.Path += "html/"
+
+	siteParams := url.Values{
+		"q":  {keyword},
+		"kl": {country},
+	}
+
+	siteURL.RawQuery = siteParams.Encode()
+
+	errGetUrl := wd.Get(siteURL.String())
 	if errGetUrl != nil {
 		panic(errGetUrl)
 	}
@@ -96,9 +106,9 @@ func getPositions(domain string, keyword string, country string) (int, string) {
 		}
 
 		// поиск требуемого домена
-		position, url := searchDomain(domain, elements)
+		position, urls := searchDomain(domain, elements)
 		if position != -1 {
-			return position, url
+			return position, urls
 		}
 
 		// если домен не найден
@@ -115,7 +125,7 @@ func getPositions(domain string, keyword string, country string) (int, string) {
 			time.Sleep(time.Duration(randomNumber) * time.Second)
 		}
 
-		// клик по кнопке "больше результатов, если результат не подгрузились скриптом"
+		// клик по кнопке "больше результатов, если результаты не подгрузились скриптом"
 		next, _ := wd.FindElement(selenium.ByCSSSelector, ".result--more")
 		errClick := next.Click()
 		if errClick != nil {
@@ -123,27 +133,23 @@ func getPositions(domain string, keyword string, country string) (int, string) {
 		}
 	}
 
-	time.Sleep(60 * time.Second)
-
 	return -1, ""
 }
 
 func searchDomain(domain string, elements []selenium.WebElement) (int, string) {
 	// поиск домена в урл-ах элементов
 	for position, tags := range elements {
-		url, errGetHref := tags.GetAttribute("href")
+		urls, errGetHref := tags.GetAttribute("href")
 
 		if errGetHref != nil {
 			fmt.Printf("position %s - error -> %s", position, errGetHref)
 		} else {
-			if strings.Contains(domain, url) {
-				return position, url
+			if strings.Contains(domain, urls) {
+				return position, urls
 			}
 		}
-
-		fmt.Printf("%d - %s\n", position, url)
+		fmt.Printf("%d - %s\n", position, urls)
 	}
-
 	fmt.Println("\nобработано", len(elements), "позиций")
 
 	return -1, ""
