@@ -16,8 +16,8 @@ const (
 )
 
 func main() {
-	domain := "https://www.domain.com" // какой домен искать
-	keyword := "keyword"         // ключевое слово
+	domain := "https://www.domain.com" 	 // какой домен искать
+	keyword := "keyword"         		 // ключевое слово
 	lang := "ru-ru"                          // язык
 	search := "https://search engine.com/"   // поисковик
 
