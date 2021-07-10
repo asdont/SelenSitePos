@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	pos, urls := getPositions("site.ru", "keyword", "ru-ru")
+	pos, urls := getPositions("site.ru", "keyword", "lang")
 	fmt.Println(pos, urls)
 }
 
