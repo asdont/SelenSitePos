@@ -16,8 +16,8 @@ const (
 )
 
 func main() {
-	domain := "https://www.vxzone.com/shops" // какой домен искать
-	keyword := "популярные магазины"         // ключевое слово
+	domain := "https://www.domain.com" // какой домен искать
+	keyword := "keyword"         // ключевое слово
 	lang := "ru-ru"                          // язык
 	search := "https://search engine.com/"   // поисковик
 
