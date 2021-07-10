@@ -10,32 +10,110 @@ import (
 	"time"
 )
 
+const (
+	seleniumPathChrome = `chromedriver` // ChromeDriver 91.0.4472.19
+	portChrome         = 9515
+)
+
 func main() {
-	pos, urls := getPositions("site.ru", "keyword", "lang")
-	fmt.Println(pos, urls)
-}
+	domain := "https://www.vxzone.com/shops" // какой домен искать
+	keyword := "популярные магазины"         // ключевое слово
+	lang := "ru-ru"                          // язык
+	search := "https://search engine.com/"   // поисковик
 
-func getPositions(domain string, keyword string, country string) (int, string) {
-	const (
-		seleniumPathChrome = `chromedriver` // ChromeDriver 91.0.4472.19
-		portChrome         = 9515
-	)
-
-	// Set the option of the selium service to null. Set as needed.
-	var ops []selenium.ServiceOption
-
-	service, errNewDriver := selenium.NewChromeDriverService(seleniumPathChrome, portChrome, ops...)
-	if errNewDriver != nil {
-		fmt.Printf("Error starting the ChromeDriver server: %v", errNewDriver)
+	// конфигурация драйвера
+	wd, service, err := confDriver(keyword, lang, search)
+	if err != nil {
+		log.Fatalf("conf driver: %v", err)
 	}
-
-	// Delay service shutdown
 	defer func(service *selenium.Service) {
 		err := service.Stop()
 		if err != nil {
-			log.Println(err)
+			log.Printf("selen service stop: %v", err)
 		}
 	}(service)
+
+	// получение позиции
+	pos, link, text, err := getPositions(*wd, domain, 3)
+	if err != nil {
+		log.Fatalf("get position and url: %v", err)
+	}
+
+	// результат
+	if pos >= 0 {
+		fmt.Printf("Позиция - %d\nlink - %s\ntext - %s", pos+1, link, text)
+	} else {
+		fmt.Println("Ничего не найдено")
+	}
+}
+
+func getPositions(wd selenium.WebDriver, domain string, depth int) (int, string, string, error) {
+	defer func(wd selenium.WebDriver) {
+		if err := wd.Quit(); err != nil {
+			log.Println(err)
+		}
+	}(wd)
+
+	// depth глубина сбора(страницы)
+	for i := 0; i < depth; i++ {
+		// поиск целевых элементов(url-ы)
+		elements, err := wd.FindElements(selenium.ByCSSSelector, "h2 .result__a")
+		if err != nil {
+			return 0, "", "", err
+		}
+
+		// поиск требуемого домена
+		pos, link, text, err := searchDomain(domain, elements)
+		if err != nil {
+			return 0, "", text, err
+		}
+
+		if pos != -1 {
+			return pos, link, text, nil
+		}
+
+		// если домен не найден
+		// прокрутка страницы вниз
+		_, err = wd.ExecuteScript("window.scrollTo(0, document.body.scrollHeight);", nil)
+		if err != nil {
+			return 0, "", "", err
+		}
+
+		time.Sleep(1 * time.Second)
+
+		// клик по кнопке "больше результатов", если результаты не подгрузились скриптом
+		next, _ := wd.FindElement(selenium.ByCSSSelector, ".result--more")
+		err = next.Click()
+		if err != nil {
+			return 0, "", "", err
+		}
+	}
+	return -1, "", "", nil
+}
+
+func searchDomain(domain string, elements []selenium.WebElement) (int, string, string, error) {
+	// поиск домена в урл-ах элементов
+	for pos, elem := range elements {
+		link, err := elem.GetAttribute("href")
+		if err != nil {
+			return -1, "", "", fmt.Errorf("get attribute href: %v", err)
+		}
+
+		if strings.Contains(link, domain) {
+			textURL, _ := elem.Text()
+			return pos, link, textURL, nil
+		}
+	}
+	return -1, "", "", nil
+}
+
+func confDriver(keyword string, lang string, search string) (*selenium.WebDriver, *selenium.Service, error) {
+	var ops []selenium.ServiceOption
+
+	service, err := selenium.NewChromeDriverService(seleniumPathChrome, portChrome, ops...)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	caps := selenium.Capabilities{
 		"browserName": "chrome",
@@ -45,7 +123,7 @@ func getPositions(domain string, keyword string, country string) (int, string) {
 	chromeCaps := chrome.Capabilities{
 		Path: "",
 		Args: []string{
-			"--headless",
+			//"--headless",
 			"--disable-extensions",
 			"--disable-plugins",
 			"--disable-notifications",
@@ -57,38 +135,31 @@ func getPositions(domain string, keyword string, country string) (int, string) {
 
 	caps.AddChrome(chromeCaps)
 
-	wd, errNewRemote := selenium.NewRemote(caps, "http://127.0.0.1:9515/wd/hub")
-	if errNewRemote != nil {
-		panic(errNewRemote)
-	}
-
-	defer func(wd selenium.WebDriver) {
-		if err := wd.Quit(); err != nil {
-			log.Println(err)
-		}
-	}(wd)
-
-	errWait := wd.SetImplicitWaitTimeout(3 * time.Second) // максимальное время ожидания появления элемента
-	if errWait != nil {
-		fmt.Println(errWait)
-	}
-
-	errTimeout := wd.SetPageLoadTimeout(1 * time.Second) // тайм-аут для загрузки страницы
-	if errTimeout != nil {
-		fmt.Println(errTimeout)
-	}
-
-	// запрос страницы с требуемым keyword
-	siteURL, err := url.Parse("https://site.com")
+	wd, err := selenium.NewRemote(caps, "http://127.0.0.1:9515/wd/hub")
 	if err != nil {
-		log.Fatal("parse site url: %v", err)
+		return nil, nil, err
 	}
 
-	siteURL.Path += "html/"
+	// максимальное ожидание появления элемента
+	err = wd.SetImplicitWaitTimeout(3 * time.Second)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// тайм-аут для загрузки страницы
+	err = wd.SetPageLoadTimeout(10 * time.Second)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	siteURL, err := url.Parse(search)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	siteParams := url.Values{
 		"q":  {keyword},
-		"kl": {country},
+		"kl": {lang},
 	}
 
 	siteURL.RawQuery = siteParams.Encode()
@@ -98,59 +169,5 @@ func getPositions(domain string, keyword string, country string) (int, string) {
 		panic(errGetUrl)
 	}
 
-	for i := 0; i < 2; i++ {
-		// поиск целевых элементов(url-ы)
-		elements, errFindSelector := wd.FindElements(selenium.ByCSSSelector, "h2 .result__a")
-		if errFindSelector != nil {
-			fmt.Println(errFindSelector)
-		}
-
-		// поиск требуемого домена
-		position, urls := searchDomain(domain, elements)
-		if position != -1 {
-			return position, urls
-		}
-
-		// если домен не найден
-		// прокрутка страницы вниз
-		_, errScript := wd.ExecuteScript("window.scrollTo(0, document.body.scrollHeight);", nil)
-		if errScript != nil {
-			fmt.Println(errScript)
-		}
-
-		// ожидание от 2 до 5 секунд
-		randomNumber := time.Now().Nanosecond() % 10
-		if randomNumber < 2 || randomNumber > 5 {
-			randomNumber = 3
-			time.Sleep(time.Duration(randomNumber) * time.Second)
-		}
-
-		// клик по кнопке "больше результатов, если результаты не подгрузились скриптом"
-		next, _ := wd.FindElement(selenium.ByCSSSelector, ".result--more")
-		errClick := next.Click()
-		if errClick != nil {
-			fmt.Println(errClick)
-		}
-	}
-
-	return -1, ""
-}
-
-func searchDomain(domain string, elements []selenium.WebElement) (int, string) {
-	// поиск домена в урл-ах элементов
-	for position, tags := range elements {
-		urls, errGetHref := tags.GetAttribute("href")
-
-		if errGetHref != nil {
-			fmt.Printf("position %s - error -> %s", position, errGetHref)
-		} else {
-			if strings.Contains(domain, urls) {
-				return position, urls
-			}
-		}
-		fmt.Printf("%d - %s\n", position, urls)
-	}
-	fmt.Println("\nобработано", len(elements), "позиций")
-
-	return -1, ""
+	return &wd, service, nil
 }
